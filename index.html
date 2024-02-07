@@ -10,7 +10,9 @@
 </head>
 
 <body>
-    <script>let backgroundImage, fingerLayerImage; // Variables for the background and finger layer images
+    <script>
+
+        let backgroundImage, fingerLayerImage; // Variables for the background and finger layer images
         let eyeImage1, eyeImage2; // Variables for the eye images
         let buttons = []; // Array to hold the button objects
         let currentEyeImage; // Variable to keep track of which eye image to display
@@ -20,11 +22,12 @@
         let lastPressTime = []; // Array to hold the last press time for each button
 
         function preload() {
-            backgroundImage = loadImage("background.png"); // Load the background image
-            fingerLayerImage = loadImage("fingerLayer.png"); // Load the finger layer image
-            eyeImage1 = loadImage("eye1.png"); // Load the first eye image
-            eyeImage2 = loadImage("eye2.png"); // Load the second eye image
+            backgroundImage = loadImage('https://white-basic-harrier-256.mypinata.cloud/ipfs/QmU9AH77xNjv9cNcQDjmL5MS4cKCkC5dHFqa5P4GzWzW7Z');
+            fingerLayerImage = loadImage('https://white-basic-harrier-256.mypinata.cloud/ipfs/QmRdXUSJ5TXsrt4eVnYUngPcHfh3yAcaRpqH9agPwHsik1');
+            eyeImage1 = loadImage('https://white-basic-harrier-256.mypinata.cloud/ipfs/Qmf3aGMwNcKzgtotxHRQQvGBdGYYbkwaqLD5zrU6xtkqMt');
+            eyeImage2 = loadImage('https://white-basic-harrier-256.mypinata.cloud/ipfs/QmcZTRcZPSUBALtfiMV43CXsVDHxEDxg5piCpGbX5deYfn');
         }
+
 
         function setup() {
             createCanvas(700, 700);
