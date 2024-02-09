@@ -1,18 +1,20 @@
 let synthImg;
-let keys = []; // Combine white and black keys into a single array for simplicity
+let keyboard; // Instance of the Keyboard class
 let arpeggioInterval;
 let arpeggioSpeedSlider;
 let lastArpeggioTriggerTime = 0;
-
-//let holdIndicatorX = 710; // X position for the hold indicator
-//let holdIndicatorY = 315; // Y position for the hold indicator
-
-let arpeggioActive = false; // To toggle the arpeggio active state
-let arpeggioToggleButton; // Button for toggling arpeggio
-
+let nextNoteTime = 0;
+let arpeggioActive = false;
+let arpeggioToggleButton;
 let activeOsc = null;
-
 let envelope;
+let amplitude; // Add this with the global variables
+
+let lineStartX = 215; // Adjust as needed
+let lineStartY = 110; // Adjust as needed
+let lineEndX = 615; // Adjust as needed
+let lineEndY = 110; // Adjust as needed
+let minAmplitudeThreshold = 0.0001;
 
 // Frequencies for C3 to B3 octave, corrected
 let frequencies = [
@@ -45,186 +47,246 @@ function preload() {
 function setup() {
   createCanvas(800, 800);
   image(synthImg, 0, 0, 800, 800);
-  setupKeys();
 
-  // Initialize the envelope with attackTime, decayTime, sustainRatio, releaseTime
+  keyboard = new Keyboard(
+    startX,
+    startY,
+    whiteKeyWidth,
+    whiteKeyHeight,
+    blackKeyWidth,
+    blackKeyHeight,
+    frequencies
+  );
+
   envelope = new p5.Envelope();
   envelope.setADSR(0.001, 0.3, 0.2, 8); // Short attack, longer decay, low sustain, moderate release
   envelope.setRange(3, 0); // Maximum amplitude to 1, minimum to 0
 
-  // Initialize the arpeggio speed slider
-  arpeggioSpeedSlider = createSlider(50, 600, 300, 1); // Min, Max, Default values and step
+  arpeggioSpeedSlider = createSlider(50, 600, 300, 1);
   arpeggioSpeedSlider.position(607, 300);
-  arpeggioSpeedSlider.style("rotate", "-90deg"); // Rotate slider to vertical
+  arpeggioSpeedSlider.style("rotate", "-90deg");
 
   arpeggioToggleButton = createButton("Toggle");
   arpeggioToggleButton.position(690, 260);
   arpeggioToggleButton.mousePressed(toggleArpeggioActive);
-}
 
-function toggleArpeggioActive() {
-  arpeggioActive = !arpeggioActive; // Toggle the arpeggio active state
-
-  if (!arpeggioActive) {
-    stopArpeggio(); // Stop the arpeggio if it's deactivated
-  }
+  amplitude = new p5.Amplitude();
 }
 
 function draw() {
-  drawKeys();
+  keyboard.drawKeys();
 
-  // Draw the arpeggio indicator light with a glow effect when active
-  push(); // Start a new drawing state
-  fill(arpeggioActive ? "green" : "red"); // Green if arpeggio is active, red otherwise
-  ellipse(710, 315, 30, 30); // Position and size of the indicator light
-  pop(); // Restore original drawing state
+  push();
+  fill(arpeggioActive ? "green" : "red");
+  ellipse(710, 315, 30, 30);
+
+  drawSoundLines();
+  pop();
 }
 
-function setupKeys() {
-  let freqIndex = 0; // Index to track the frequency array
+class Keyboard {
+  constructor(
+    startX,
+    startY,
+    whiteKeyWidth,
+    whiteKeyHeight,
+    blackKeyWidth,
+    blackKeyHeight,
+    frequencies
+  ) {
+    this.keys = [];
+    this.startX = startX;
+    this.startY = startY;
+    this.frequencies = frequencies;
+    this.setupKeys(
+      whiteKeyWidth,
+      whiteKeyHeight,
+      blackKeyWidth,
+      blackKeyHeight
+    );
+  }
 
-  for (let i = 0; i < 7; i++) {
-    // Add white keys
-    keys.push({
-      x: startX + i * whiteKeyWidth,
-      color: 255, // White color
-      width: whiteKeyWidth,
-      height: whiteKeyHeight,
-      isPressed: false,
-      freq: frequencies[freqIndex++], // Assign frequency and increment index
-    });
-
-    // Add black keys conditionally, except after the 3rd and 7th white keys
-    if (i !== 2 && i !== 6) {
-      keys.push({
-        x: startX + (i + 1) * whiteKeyWidth - blackKeyWidth / 2, // Adjust position to be between white keys
-        color: 0, // Black color
-        width: blackKeyWidth,
-        height: blackKeyHeight,
-        isPressed: false,
-        freq: frequencies[freqIndex++], // Assign frequency and increment index
-      });
+  setupKeys(whiteKeyWidth, whiteKeyHeight, blackKeyWidth, blackKeyHeight) {
+    let freqIndex = 0;
+    for (let i = 0; i < 7; i++) {
+      this.keys.push(
+        new Key(
+          this.startX + i * whiteKeyWidth,
+          this.startY,
+          whiteKeyWidth,
+          whiteKeyHeight,
+          255,
+          this.frequencies[freqIndex++]
+        )
+      );
+      if (i !== 2 && i !== 6) {
+        this.keys.push(
+          new Key(
+            this.startX + (i + 1) * whiteKeyWidth - blackKeyWidth / 2,
+            this.startY,
+            blackKeyWidth,
+            blackKeyHeight,
+            0,
+            this.frequencies[freqIndex++]
+          )
+        );
+      }
     }
+  }
+
+  drawKeys() {
+    this.keys.forEach((key) => {
+      fill(
+        key.color === 255 ? (key.isPressed ? 200 : 255) : key.isPressed ? 80 : 0
+      );
+      rect(key.x, key.y + (key.isPressed ? 2 : 0), key.width, key.height);
+    });
+  }
+
+  checkPressedKeys(mouseX, mouseY) {
+    let keyFound = false;
+    this.keys.forEach((key) => {
+      if (
+        mouseX > key.x &&
+        mouseX < key.x + key.width &&
+        mouseY > this.startY &&
+        mouseY < this.startY + key.height
+      ) {
+        key.isPressed = true;
+        keyFound = true;
+        if (arpeggioActive) {
+          startArpeggio([key.freq]); // Modified to pass an array of notes
+        } else {
+          playNote(key.freq);
+        }
+        return true; // Found and processed a key
+      }
+    });
+    return keyFound;
+  }
+
+  resetKeys() {
+    this.keys.forEach((key) => (key.isPressed = false));
   }
 }
 
-function drawKeys() {
-  // Draw all keys, but draw black keys on a separate pass to ensure they are on top
-  keys.forEach((key) => {
-    if (key.color === 255) {
-      // White keys
-      fill(key.isPressed ? 200 : 255);
-      rect(key.x, key.isPressed ? startY + 2 : startY, key.width, key.height);
-    }
-  });
-
-  keys.forEach((key) => {
-    if (key.color === 0) {
-      // Black keys
-      fill(key.isPressed ? 80 : 0);
-      rect(key.x, key.isPressed ? startY + 2 : startY, key.width, key.height);
-    }
-  });
+class Key {
+  constructor(x, y, width, height, color, freq) {
+    this.x = x;
+    this.y = y;
+    this.width = width;
+    this.height = height;
+    this.color = color;
+    this.freq = freq;
+    this.isPressed = false;
+  }
 }
 
 function playNote(frequency) {
-  if (activeOsc) {
-    activeOsc.stop();
-  }
-  activeOsc = new p5.Oscillator("sine"); // Use a sine wave for a smoother sound
+  if (activeOsc) activeOsc.stop();
+  activeOsc = new p5.Oscillator("sine");
   activeOsc.freq(frequency);
-
-  // Start the oscillator without an explicit amplitude
   activeOsc.start();
-
-  // Use the envelope to control the amplitude of the oscillator
   envelope.play(activeOsc);
+  console.log(`Playing note: ${frequency} Hz`);
 }
 
-function startArpeggio(frequency) {
-  if (!arpeggioInterval) {
-    // Only set up the interval if it's not already running
-    lastArpeggioTriggerTime = millis(); // Initialize with the current time
-    arpeggioInterval = setInterval(() => {
-      let currentTime = millis();
-      // Check if enough time has passed based on the current slider value
-      if (
-        currentTime - lastArpeggioTriggerTime >=
-        arpeggioSpeedSlider.value()
-      ) {
-        playNote(frequency); // Play the same note
-        lastArpeggioTriggerTime = currentTime; // Reset the last trigger time
-      }
-    }, 10); // Check every 10 milliseconds to see if it's time to play the note
-  }
+function startArpeggio(notes) {
+  console.log("Starting arpeggio");
+  if (arpeggioInterval) clearInterval(arpeggioInterval); // Clear existing interval if any
+
+  let noteIndex = 0;
+  arpeggioInterval = setInterval(() => {
+    let currentTime = millis();
+    if (currentTime >= nextNoteTime) {
+      playNote(notes[noteIndex % notes.length]);
+      noteIndex++;
+
+      let sliderValue = arpeggioSpeedSlider.value();
+      let adjustedSliderValue = 600 - sliderValue; // Adjust the speed based on the slider
+      nextNoteTime = currentTime + adjustedSliderValue; // Set the time for the next note
+      console.log(
+        `Arpeggio note played. Next note in: ${adjustedSliderValue} ms`
+      );
+    }
+  }, 10); // Check every 10 milliseconds to maintain responsiveness
 }
+
 function stopArpeggio() {
   if (arpeggioInterval) {
     clearInterval(arpeggioInterval);
-    arpeggioInterval = null; // Clear the interval variable
+    arpeggioInterval = null;
+    nextNoteTime = 0; // Reset the next note time
+    console.log("Arpeggio stopped");
   }
 }
-function mousePressed() {
-  userStartAudio().then(() => {
-    let keyFound = false; // Flag to indicate if a key has been found and played
 
-    // Check black keys first since they are on top and have smaller area
-    for (let key of keys) {
-      if (key.color === 0) {
-        // Black keys
-        if (
-          mouseX > key.x &&
-          mouseX < key.x + key.width &&
-          mouseY > startY &&
-          mouseY < startY + key.height
-        ) {
-          key.isPressed = true;
-          if (arpeggioActive) {
-            startArpeggio(key.freq); // Start arpeggio if arpeggio is active
-          } else {
-            playNote(key.freq); // Play a single note if arpeggio is not active
-          }
-          keyFound = true;
-          break; // Exit the loop after pressing a key to avoid triggering a white key
-        }
-      }
+function toggleArpeggioActive() {
+  arpeggioActive = !arpeggioActive;
+  console.log(`Arpeggio active: ${arpeggioActive}`);
+  if (!arpeggioActive) stopArpeggio();
+}
+
+function drawSoundLines() {
+  let level = amplitude.getLevel(); // Get the current amplitude level
+
+  // Calculate the current length of the lines based on the amplitude level
+  let currentLineLength = map(level, 0, 1, 0, lineEndX - lineStartX);
+  let lineMidPointX = (lineStartX + lineEndX) / 2; // Midpoint of the line's original start and end points
+  let currentStartX = lineMidPointX - currentLineLength / 2; // Adjusted start point based on the current line length
+  let currentEndX = lineMidPointX + currentLineLength / 2; // Adjusted end point based on the current line length
+
+  // Set the color for the 3 lines
+  stroke(255, 255, 0); // Yellow color
+  strokeWeight(2); // Line thickness
+
+  // Draw 3 lines that consolidate towards the center based on the amplitude level
+  line(currentStartX, lineStartY - 20, currentEndX, lineEndY - 20); // Upper line
+  line(currentStartX, lineStartY, currentEndX, lineEndY); // Middle line
+  line(currentStartX, lineStartY + 20, currentEndX, lineEndY + 20); // Lower line
+
+  // Only draw noise pattern if the amplitude is above a certain threshold
+  if (level > minAmplitudeThreshold) {
+    let noiseScale = map(level, 0, 1, 0.01, 0.1);
+    noiseDetail(8, 0.5);
+
+    // Create a cool noise pattern in the middle of the lines
+    beginShape();
+    noFill(); // No fill for the shape
+
+    for (let x = currentStartX; x <= currentEndX; x += 10) {
+      let noiseVal = noise((x + frameCount) * noiseScale) * 100; // Generate noise value
+      let y = lineStartY + noiseVal - 50; // Adjust Y position based on noise
+      stroke(255, 255, 0, 150); // Semi-transparent yellow
+      strokeWeight(1); // Thinner lines for the noise pattern
+      vertex(x, y);
     }
 
-    // If no black key was pressed, check white keys
-    if (!keyFound) {
-      for (let key of keys) {
-        if (key.color === 255) {
-          // White keys
-          if (
-            mouseX > key.x &&
-            mouseX < key.x + key.width &&
-            mouseY > startY &&
-            mouseY < startY + key.height
-          ) {
-            key.isPressed = true;
-            if (arpeggioActive) {
-              startArpeggio(key.freq); // Also start arpeggio for white keys if arpeggio is active
-            } else {
-              playNote(key.freq); // Play a single note for white keys if arpeggio is not active
-            }
-            break; // Exit the loop after pressing a key
-          }
-        }
+    endShape();
+  }
+}
+
+function mousePressed() {
+  userStartAudio().then(() => {
+    // Check if the mouse interaction is on the slider
+    if (
+      mouseY >= 300 - 15 &&
+      mouseY <= 300 + 15 &&
+      mouseX >= 607 &&
+      mouseX <= 907
+    ) {
+      console.log("Interacting with slider, arpeggio will not stop.");
+      // Possibly update something here if needed, but do not stop the arpeggio
+    } else {
+      // Proceed with the original functionality if not interacting with the slider
+      if (!keyboard.checkPressedKeys(mouseX, mouseY)) {
+        stopArpeggio(); // No key was pressed, stop arpeggio if it's not due to slider interaction
       }
     }
   });
 }
 
 function mouseReleased() {
-  keys.forEach((key) => {
-    key.isPressed = false; // Reset key pressed states
-  });
-
-  // Stop the arpeggio when the mouse is released if the arpeggio is not set to hold
-  if (arpeggioActive) {
-    // If arpeggio is active, it should continue playing even after the mouse is released
-    // You might want to add logic here if you need to handle something when the mouse is released while the arpeggio is active
-  } else {
-    stopArpeggio(); // Stop the arpeggio if it's not active
-  }
+  keyboard.resetKeys();
+  // Consider adding a similar condition here if necessary
 }
