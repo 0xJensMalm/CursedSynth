@@ -1,105 +1,246 @@
-let backgroundImage, fingerLayerImage; // Variables for the background and finger layer images
-let eyeImage1, eyeImage2; // Variables for the eye images
-let buttons = []; // Array to hold the button objects
-let currentEyeImage; // Variable to keep track of which eye image to display
-let switchInterval = 200; // Interval in milliseconds for switching images
-let lastSwitchTime = 0; // Time since last image switch
-let oscillators = []; // Array to hold the oscillators for each tone
-let lastPressTime = []; // Array to hold the last press time for each button
+let synthImg;
+let keys = []; // Combine white and black keys into a single array for simplicity
+
+let arpeggioOn = false;
+let holdMode = false;
+let arpeggioSpeed = 1000; // Milliseconds between note changes
+let arpeggioInterval;
+let activeOsc = null;
+
+// Frequencies for C3 to B3 octave, corrected
+let frequencies = [
+  130.81,
+  138.59,
+  146.83,
+  155.56,
+  164.81, // C3 to E3
+  174.61,
+  185.0,
+  196.0,
+  207.65,
+  220.0, // F3 to A3
+  233.08,
+  246.94, // A#3/Bb3 to B3
+];
+
+// Key dimensions and positions
+let whiteKeyWidth = 83;
+let whiteKeyHeight = 200;
+let blackKeyWidth = 50;
+let blackKeyHeight = 100;
+let startY = 560;
+let startX = 108;
 
 function preload() {
-  backgroundImage = loadImage("background.png"); // Load the background image
-  fingerLayerImage = loadImage("fingerLayer.png"); // Load the finger layer image
-  eyeImage1 = loadImage("eye1.png"); // Load the first eye image
-  eyeImage2 = loadImage("eye2.png"); // Load the second eye image
+  synthImg = loadImage("synth.png"); // Ensure 'synth.png' is in the project directory
+  //synthImg = loadImage("data:image/png;base64," + base64Img); TEST BASE 64
 }
 
 function setup() {
-  createCanvas(700, 700);
-  // Initialize buttons, oscillators, and lastPressTime
-  for (let i = 0; i < 6; i++) {
-    buttons.push(new Button(100 + i * 85, 650, 50, i));
-    let osc = new p5.Oscillator("sawtooth");
-    osc.freq(110 * pow(2, i / 12));
-    osc.amp(0);
-    osc.start();
-    oscillators.push(osc);
-    lastPressTime.push(0); // Initialize the last press time for each button
-  }
-  currentEyeImage = eyeImage1;
+  createCanvas(800, 800);
+  image(synthImg, 0, 0, 800, 800);
+  setupKeys();
+
+  // Arpeggio toggle button
+  let arpButton = createButton("Arpeggio");
+  arpButton.position(20, 20);
+  arpButton.mousePressed(toggleArpeggio);
+
+  // Hold mode toggle button
+  let holdButton = createButton("Hold");
+  holdButton.position(20, 50);
+  holdButton.mousePressed(toggleHold);
+
+  // Arpeggio speed slider
+  let speedSlider = createSlider(50, 600, 300);
+  speedSlider.position(20, 80);
+  speedSlider.input(() => adjustArpeggioSpeed(speedSlider.value()));
+}
+
+function toggleArpeggio() {
+  arpeggioOn = !arpeggioOn;
+}
+
+function toggleHold() {
+  holdMode = !holdMode;
 }
 
 function draw() {
-  background(backgroundImage); // Display the background image
+  drawKeys();
+}
 
-  // Check if any oscillator is playing
-  let anyOscillatorPlaying = oscillators.some((osc) => osc.amp().value > 0.01);
+function setupKeys() {
+  let freqIndex = 0; // Index to track the frequency array
 
-  // Draw the finger layer image
-  image(fingerLayerImage, 0, 0, width, height);
+  for (let i = 0; i < 7; i++) {
+    // Add white keys
+    keys.push({
+      x: startX + i * whiteKeyWidth,
+      color: 255, // White color
+      width: whiteKeyWidth,
+      height: whiteKeyHeight,
+      isPressed: false,
+      freq: frequencies[freqIndex++], // Assign frequency and increment index
+    });
 
-  // Visualization container (the area for sound visualization)
-  if (anyOscillatorPlaying) {
-    // Placeholder for sound visualization
-    // You can add your sound visualization logic here
-    stroke(255, 0, 0); // Red frame for visualization container
-    noFill();
-    ellipse(width / 2, height / 2, 200); // Visualization area
+    // Add black keys conditionally, except after the 3rd and 7th white keys
+    if (i !== 2 && i !== 6) {
+      keys.push({
+        x: startX + (i + 1) * whiteKeyWidth - blackKeyWidth / 2, // Adjust position to be between white keys
+        color: 0, // Black color
+        width: blackKeyWidth,
+        height: blackKeyHeight,
+        isPressed: false,
+        freq: frequencies[freqIndex++], // Assign frequency and increment index
+      });
+    }
   }
+}
 
-  // Only activate the eye flickering effect if a sound is playing
-  if (anyOscillatorPlaying && millis() - lastSwitchTime > switchInterval) {
-    currentEyeImage = currentEyeImage === eyeImage1 ? eyeImage2 : eyeImage1;
-    lastSwitchTime = millis();
-  }
+function drawKeys() {
+  // Draw all keys, but draw black keys on a separate pass to ensure they are on top
+  keys.forEach((key) => {
+    if (key.color === 255) {
+      // White keys
+      fill(key.isPressed ? 200 : 255);
+      rect(key.x, key.isPressed ? startY + 2 : startY, key.width, key.height);
+    }
+  });
 
-  // Display the current eye image on top of everything
-  image(currentEyeImage, 0, 0, width, height);
-
-  // Display and handle button presses
-  buttons.forEach((button, index) => {
-    button.display(); // Make sure buttons are always displayed
-
-    if (button.isPressed(mouseX, mouseY) && mouseIsPressed) {
-      if (lastPressTime[index] === 0 || millis() - lastPressTime[index] > 500) {
-        // Update if not pressed before or it's been more than 500ms
-        lastPressTime[index] = millis(); // Update the last press time
-      }
-      let currentTime = millis();
-      let modulationSpeed = 20; // Speed of the amplitude modulation
-      let modulationAmount = 0.25; // How much the amplitude varies
-      let timeSincePressed = currentTime - lastPressTime[index]; // Calculate time since the button was pressed
-
-      if (timeSincePressed < 500) {
-        // Apply modulation for the first 500ms
-        let modulation =
-          Math.abs(Math.sin(currentTime / modulationSpeed)) * modulationAmount;
-        oscillators[index].amp(0.5 + modulation, 0.05); // Apply the modulated amplitude
-      } else {
-        oscillators[index].amp(0.5, 0.05); // After 500ms, stabilize the tone
-      }
-    } else {
-      oscillators[index].amp(0, 0.5); // Fade out the tone
+  keys.forEach((key) => {
+    if (key.color === 0) {
+      // Black keys
+      fill(key.isPressed ? 80 : 0);
+      rect(key.x, key.isPressed ? startY + 2 : startY, key.width, key.height);
     }
   });
 }
 
-// Button class to handle button creation, display, and press detection
-class Button {
-  constructor(x, y, diameter, toneIndex) {
-    this.x = x;
-    this.y = y;
-    this.diameter = diameter;
-    this.toneIndex = toneIndex; // Associate each button with a tone
+function playNote(frequency) {
+  // Stop the previous oscillator if one is active
+  if (activeOsc) {
+    activeOsc.stop();
   }
 
-  display() {
-    fill(255, 0, 0); // Red color for the buttons
-    ellipse(this.x, this.y, this.diameter); // Draw the button
-  }
+  // Create a new oscillator for the new note
+  activeOsc = new p5.Oscillator("sawtooth");
+  activeOsc.freq(frequency);
+  activeOsc.start();
+  activeOsc.amp(0.5, 0.05);
 
-  isPressed(px, py) {
-    let d = dist(px, py, this.x, this.y);
-    return d < this.diameter / 2; // Returns true if mouse is over the button
+  // Do not automatically stop the oscillator after a fixed duration
+  // The oscillator will be stopped when a new note is played or when the mouse is released
+}
+
+function startArpeggio(startFreq) {
+  if (arpeggioInterval) clearInterval(arpeggioInterval); // Clear any existing interval
+
+  let arpeggioNotes = [startFreq];
+  let currentIndex = frequencies.indexOf(startFreq);
+
+  // Add next two frequencies for a simple arpeggio
+  if (currentIndex + 1 < frequencies.length)
+    arpeggioNotes.push(frequencies[currentIndex + 1]);
+  if (currentIndex + 2 < frequencies.length)
+    arpeggioNotes.push(frequencies[currentIndex + 2]);
+
+  let noteIndex = 0;
+
+  // Function to cycle through arpeggio notes
+  const cycleNotes = () => {
+    playNote(arpeggioNotes[noteIndex % arpeggioNotes.length]);
+    noteIndex++;
+  };
+
+  cycleNotes(); // Start with the first note immediately
+  arpeggioInterval = setInterval(cycleNotes, arpeggioSpeed); // Set up the interval to cycle through the notes
+}
+
+function adjustArpeggioSpeed(newSpeed) {
+  arpeggioSpeed = newSpeed;
+  if (arpeggioOn && activeOsc) {
+    clearInterval(arpeggioInterval);
+    startArpeggio(activeOsc.freq().value); // Restart the arpeggio with the new speed
   }
 }
+
+function stopArpeggio() {
+  if (arpeggioInterval) clearInterval(arpeggioInterval);
+}
+
+function mousePressed() {
+  userStartAudio().then(() => {
+    if (holdMode) {
+      // In hold mode, stop the previous note (if any) when a new key is pressed
+      if (activeOsc) {
+        activeOsc.stop();
+      }
+    }
+
+    let keyFound = false; // Flag to indicate if a key has been found and played
+
+    // Check black keys first since they are on top and have smaller area
+    for (let key of keys) {
+      if (key.color === 0) {
+        // Black keys
+        if (
+          mouseX > key.x &&
+          mouseX < key.x + key.width &&
+          mouseY > startY &&
+          mouseY < startY + key.height
+        ) {
+          key.isPressed = true;
+          if (arpeggioOn) {
+            startArpeggio(key.freq); // Start arpeggio with the pressed key's frequency
+          } else {
+            playNote(key.freq); // Play the note corresponding to the key's frequency
+          }
+          keyFound = true;
+          break; // Exit the loop after pressing a key
+        }
+      }
+    }
+
+    // If no black key was pressed, check white keys
+    if (!keyFound) {
+      for (let key of keys) {
+        if (key.color === 255) {
+          // White keys
+          if (
+            mouseX > key.x &&
+            mouseX < key.x + key.width &&
+            mouseY > startY &&
+            mouseY < startY + key.height
+          ) {
+            key.isPressed = true;
+            if (arpeggioOn) {
+              startArpeggio(key.freq); // Similarly start arpeggio for white keys
+            } else {
+              playNote(key.freq); // Play the note for white keys
+            }
+            break; // Exit the loop after pressing a key
+          }
+        }
+      }
+    }
+
+    if (!keyFound && arpeggioOn) {
+      stopArpeggio(); // Stop arpeggio if no key is pressed and arpeggio is on
+    }
+  });
+}
+
+function mouseReleased() {
+  if (!holdMode) {
+    if (arpeggioOn) {
+      clearInterval(arpeggioInterval); // Stop the arpeggio
+      if (activeOsc) {
+        activeOsc.stop(); // Stop the active oscillator
+        activeOsc = null;
+      }
+    }
+    keys.forEach((key) => (key.isPressed = false)); // Reset key pressed states
+  }
+}
+
+//let base64Img = "xxx";
